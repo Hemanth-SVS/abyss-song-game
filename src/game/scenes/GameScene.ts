@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_CONFIG, PLAYER, HAZARDS, APEX, OVERSEER, GAME } from '../constants';
+import { GAME_CONFIG, PLAYER, HAZARDS, APEX, OVERSEER, GAME, STORY_BEATS } from '../constants';
 
 interface GameData {
   health: number;
@@ -23,13 +23,25 @@ export class GameScene extends Phaser.Scene {
   private jellyfishes!: Phaser.Physics.Arcade.Group;
   private nets!: Phaser.Physics.Arcade.Group;
   
-  private background!: Phaser.GameObjects.TileSprite;
+  // Parallax backgrounds
+  private bgFar!: Phaser.GameObjects.TileSprite;
+  private bgMid!: Phaser.GameObjects.TileSprite;
+  private fogOverlay!: Phaser.GameObjects.Graphics;
+  
   private apexShip!: Phaser.GameObjects.Sprite;
   private overseer!: Phaser.GameObjects.Sprite;
   private sanctuary!: Phaser.GameObjects.Sprite;
   
   private echolocationCircle!: Phaser.GameObjects.Graphics;
   private shieldCircle!: Phaser.GameObjects.Graphics;
+  
+  // Particle systems
+  private bubbleEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private debrisEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private glowEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  
+  // Player glow effect
+  private playerGlow!: Phaser.GameObjects.Graphics;
   
   private gameData: GameData = {
     health: PLAYER.maxHealth,
@@ -47,6 +59,10 @@ export class GameScene extends Phaser.Scene {
   private netSpawnTimer!: Phaser.Time.TimerEvent;
   private plasticSpawnTimer!: Phaser.Time.TimerEvent;
   private jellyfishSpawnTimer!: Phaser.Time.TimerEvent;
+  
+  // Story system
+  private triggeredStoryBeats: Set<number> = new Set();
+  private lastStoryDistance: number = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -65,42 +81,74 @@ export class GameScene extends Phaser.Scene {
       gameOver: false,
       won: false,
     };
+    this.triggeredStoryBeats.clear();
 
-    // Create background
-    this.background = this.add.tileSprite(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 'ocean_bg');
-    this.background.setOrigin(0, 0);
-    this.background.setScrollFactor(0);
+    // Create parallax backgrounds
+    this.createBackgrounds();
     
-    // Add fog overlay effect
-    const fogGraphics = this.add.graphics();
-    fogGraphics.fillStyle(0x0a1520, 0.4);
-    fogGraphics.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height);
-    fogGraphics.setScrollFactor(0);
-    fogGraphics.setDepth(5);
+    // Create particle systems
+    this.createParticles();
 
     // Create sanctuary at the end
     this.sanctuary = this.add.sprite(GAME.sanctuaryDistance, GAME_CONFIG.height / 2, 'sanctuary');
-    this.sanctuary.setScale(0.8);
+    this.sanctuary.setScale(1.2);
+    this.sanctuary.setDepth(8);
     this.physics.add.existing(this.sanctuary, true);
+    
+    // Add glow effect to sanctuary
+    this.tweens.add({
+      targets: this.sanctuary,
+      alpha: { from: 0.8, to: 1 },
+      scale: { from: 1.15, to: 1.25 },
+      duration: 2000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
 
     // Create Apex ship at top
-    this.apexShip = this.add.sprite(GAME_CONFIG.width / 2, 40, 'apex_ship');
-    this.apexShip.setScale(0.3);
+    this.apexShip = this.add.sprite(GAME_CONFIG.width / 2, -50, 'apex_ship');
+    this.apexShip.setScale(0.4);
     this.apexShip.setScrollFactor(0);
-    this.apexShip.setDepth(10);
+    this.apexShip.setDepth(12);
+    this.apexShip.setAlpha(0.8);
     
     // Create Overseer drone
-    this.overseer = this.add.sprite(100, 100, 'overseer');
-    this.overseer.setScale(0.15);
+    this.overseer = this.add.sprite(100, 120, 'overseer');
+    this.overseer.setScale(0.12);
     this.overseer.setScrollFactor(0);
-    this.overseer.setDepth(10);
-    this.overseer.setAlpha(0.7);
+    this.overseer.setDepth(12);
+    this.overseer.setAlpha(0.9);
+    
+    // Overseer subtle animation
+    this.tweens.add({
+      targets: this.overseer,
+      y: { from: 115, to: 125 },
+      duration: 2000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Create player glow effect
+    this.playerGlow = this.add.graphics();
+    this.playerGlow.setDepth(18);
 
     // Create player (Echo)
-    this.player = this.physics.add.sprite(100, GAME_CONFIG.height / 2, 'echo');
-    this.player.setScale(0.15);
+    this.player = this.physics.add.sprite(150, GAME_CONFIG.height / 2, 'echo');
+    this.player.setScale(0.18);
     this.player.setCollideWorldBounds(false);
     this.player.setDepth(20);
+    
+    // Player swim animation
+    this.tweens.add({
+      targets: this.player,
+      scaleY: { from: 0.17, to: 0.19 },
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
     
     // Create groups for hazards
     this.plastics = this.physics.add.group();
@@ -116,7 +164,7 @@ export class GameScene extends Phaser.Scene {
     this.shieldCircle.setDepth(19);
 
     // Setup camera
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, GAME.sanctuaryDistance + 500, GAME_CONFIG.height);
     this.physics.world.setBounds(0, 0, GAME.sanctuaryDistance + 500, GAME_CONFIG.height);
     this.player.setCollideWorldBounds(true);
@@ -142,15 +190,135 @@ export class GameScene extends Phaser.Scene {
 
     // Spawn initial objects
     this.spawnInitialObjects();
+    
+    // Trigger initial story beat
+    this.time.delayedCall(500, () => {
+      this.triggerStoryBeat(0);
+    });
+  }
+
+  private createBackgrounds() {
+    // Far background - slowest parallax
+    this.bgFar = this.add.tileSprite(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 'ocean_bg_far');
+    this.bgFar.setOrigin(0, 0);
+    this.bgFar.setScrollFactor(0);
+    this.bgFar.setDepth(0);
+    
+    // Mid background - medium parallax
+    this.bgMid = this.add.tileSprite(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 'ocean_bg_mid');
+    this.bgMid.setOrigin(0, 0);
+    this.bgMid.setScrollFactor(0);
+    this.bgMid.setDepth(1);
+    this.bgMid.setAlpha(0.7);
+    
+    // Fog overlay for murky water effect
+    this.fogOverlay = this.add.graphics();
+    this.fogOverlay.setScrollFactor(0);
+    this.fogOverlay.setDepth(25);
+    this.updateFogOverlay();
+  }
+  
+  private updateFogOverlay() {
+    this.fogOverlay.clear();
+    
+    // Gradient fog from edges
+    const gradient = this.fogOverlay;
+    
+    // Top fog
+    for (let i = 0; i < 80; i++) {
+      const alpha = 0.4 * (1 - i / 80);
+      gradient.fillStyle(0x0a1520, alpha);
+      gradient.fillRect(0, i, GAME_CONFIG.width, 1);
+    }
+    
+    // Bottom fog
+    for (let i = 0; i < 80; i++) {
+      const alpha = 0.4 * (1 - i / 80);
+      gradient.fillStyle(0x0a1520, alpha);
+      gradient.fillRect(0, GAME_CONFIG.height - i, GAME_CONFIG.width, 1);
+    }
+    
+    // Vignette effect
+    gradient.fillStyle(0x0a1520, 0.15);
+    gradient.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height);
+  }
+
+  private createParticles() {
+    // Create bubble particle texture
+    const bubbleTexture = this.add.graphics();
+    bubbleTexture.fillStyle(0x88ccff, 1);
+    bubbleTexture.fillCircle(4, 4, 4);
+    bubbleTexture.generateTexture('bubble', 8, 8);
+    bubbleTexture.destroy();
+    
+    // Create debris particle texture
+    const debrisTexture = this.add.graphics();
+    debrisTexture.fillStyle(0x446666, 1);
+    debrisTexture.fillRect(0, 0, 3, 3);
+    debrisTexture.generateTexture('debris', 3, 3);
+    debrisTexture.destroy();
+    
+    // Create glow particle texture
+    const glowTexture = this.add.graphics();
+    glowTexture.fillStyle(0x00ffff, 1);
+    glowTexture.fillCircle(6, 6, 6);
+    glowTexture.generateTexture('glow', 12, 12);
+    glowTexture.destroy();
+    
+    // Bubble emitter - follows player
+    this.bubbleEmitter = this.add.particles(0, 0, 'bubble', {
+      speed: { min: 20, max: 50 },
+      angle: { min: 260, max: 280 },
+      scale: { start: 0.3, end: 0.1 },
+      alpha: { start: 0.6, end: 0 },
+      lifespan: 2000,
+      frequency: 200,
+      quantity: 1,
+    });
+    this.bubbleEmitter.setDepth(21);
+    
+    // Debris emitter - ambient particles
+    this.debrisEmitter = this.add.particles(GAME_CONFIG.width / 2, GAME_CONFIG.height / 2, 'debris', {
+      speed: { min: 5, max: 20 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.8, end: 0.2 },
+      alpha: { start: 0.3, end: 0 },
+      lifespan: 5000,
+      frequency: 300,
+      quantity: 2,
+      emitZone: {
+        type: 'random',
+        source: new Phaser.Geom.Rectangle(-GAME_CONFIG.width/2, -GAME_CONFIG.height/2, GAME_CONFIG.width, GAME_CONFIG.height)
+      }
+    });
+    this.debrisEmitter.setDepth(4);
+    this.debrisEmitter.setScrollFactor(0);
+    
+    // Glow emitter for bioluminescence
+    this.glowEmitter = this.add.particles(0, 0, 'glow', {
+      speed: { min: 10, max: 30 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.4, end: 0 },
+      lifespan: 1500,
+      frequency: 400,
+      quantity: 1,
+      tint: [0x00ffff, 0x00ffaa, 0x00aaff],
+      emitZone: {
+        type: 'random',
+        source: new Phaser.Geom.Rectangle(-GAME_CONFIG.width/2, -GAME_CONFIG.height/2, GAME_CONFIG.width, GAME_CONFIG.height)
+      }
+    });
+    this.glowEmitter.setDepth(3);
+    this.glowEmitter.setScrollFactor(0);
   }
 
   private spawnInitialObjects() {
-    // Spawn some initial plastics and jellyfish
-    for (let i = 0; i < 10; i++) {
-      this.spawnPlastic(Phaser.Math.Between(200, 1000));
+    for (let i = 0; i < 12; i++) {
+      this.spawnPlastic(Phaser.Math.Between(300, 1200));
     }
-    for (let i = 0; i < 5; i++) {
-      this.spawnJellyfish(Phaser.Math.Between(200, 1200));
+    for (let i = 0; i < 6; i++) {
+      this.spawnJellyfish(Phaser.Math.Between(250, 1400));
     }
   }
 
@@ -170,7 +338,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.jellyfishSpawnTimer = this.time.addEvent({
-      delay: 5000,
+      delay: 4500,
       callback: () => this.spawnJellyfish(),
       callbackScope: this,
       loop: true,
@@ -178,46 +346,81 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnPlastic(xOffset?: number) {
-    const x = xOffset ?? this.player.x + GAME_CONFIG.width + Phaser.Math.Between(0, 200);
-    const y = Phaser.Math.Between(50, GAME_CONFIG.height - 50);
+    const x = xOffset ?? this.player.x + GAME_CONFIG.width + Phaser.Math.Between(50, 300);
+    const y = Phaser.Math.Between(80, GAME_CONFIG.height - 80);
     
-    if (x < GAME.sanctuaryDistance) {
+    if (x < GAME.sanctuaryDistance - 200) {
       const plastic = this.plastics.create(x, y, 'plastic') as Phaser.Physics.Arcade.Sprite;
-      plastic.setScale(0.08);
-      plastic.setVelocityX(-30);
-      plastic.setAlpha(0.3); // Hidden until echolocation
+      plastic.setScale(0.12);
+      plastic.setVelocityX(Phaser.Math.Between(-40, -20));
+      plastic.setVelocityY(Phaser.Math.Between(-15, 15));
+      plastic.setAlpha(0.2);
       plastic.setData('revealed', false);
+      plastic.setDepth(6);
+      
+      // Gentle floating animation
+      this.tweens.add({
+        targets: plastic,
+        y: y + Phaser.Math.Between(-20, 20),
+        duration: Phaser.Math.Between(2000, 3000),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
     }
   }
 
   private spawnJellyfish(xOffset?: number) {
-    const x = xOffset ?? this.player.x + GAME_CONFIG.width + Phaser.Math.Between(0, 200);
-    const y = Phaser.Math.Between(50, GAME_CONFIG.height - 50);
+    const x = xOffset ?? this.player.x + GAME_CONFIG.width + Phaser.Math.Between(50, 300);
+    const y = Phaser.Math.Between(100, GAME_CONFIG.height - 100);
     
-    if (x < GAME.sanctuaryDistance) {
+    if (x < GAME.sanctuaryDistance - 200) {
       const jellyfish = this.jellyfishes.create(x, y, 'jellyfish') as Phaser.Physics.Arcade.Sprite;
-      jellyfish.setScale(0.08);
-      jellyfish.setVelocityX(-20);
-      jellyfish.setVelocityY(Phaser.Math.Between(-20, 20));
-      jellyfish.setAlpha(0.3); // Hidden until echolocation
+      jellyfish.setScale(0.1);
+      jellyfish.setVelocityX(Phaser.Math.Between(-30, -15));
+      jellyfish.setVelocityY(Phaser.Math.Between(-10, 10));
+      jellyfish.setAlpha(0.25);
       jellyfish.setData('revealed', false);
+      jellyfish.setDepth(6);
+      
+      // Pulsing animation for jellyfish
+      this.tweens.add({
+        targets: jellyfish,
+        scaleY: 0.12,
+        scaleX: 0.09,
+        duration: 1200,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
     }
   }
 
   private spawnNet() {
     if (this.gameData.isJammed || this.gameData.gameOver) return;
     
-    const x = this.player.x + Phaser.Math.Between(100, 400);
-    const y = Phaser.Math.Between(100, GAME_CONFIG.height - 100);
+    const x = this.player.x + Phaser.Math.Between(150, 500);
+    const y = Phaser.Math.Between(120, GAME_CONFIG.height - 120);
     
-    if (x < GAME.sanctuaryDistance) {
+    if (x < GAME.sanctuaryDistance - 300) {
       const net = this.nets.create(x, y, 'ghost_net') as Phaser.Physics.Arcade.Sprite;
-      net.setScale(0.2);
-      net.setAlpha(0.3);
+      net.setScale(0.25);
+      net.setAlpha(0.2);
       net.setData('revealed', false);
+      net.setDepth(7);
+      
+      // Drifting animation
+      this.tweens.add({
+        targets: net,
+        rotation: 0.1,
+        duration: 3000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
       
       this.gameData.apexMoney += 100;
-      this.emitUIUpdate('Apex: Net deployed. Quota +$100');
+      this.emitUIUpdate('APEX: Net deployed. Quota +$100');
     }
   }
 
@@ -225,10 +428,27 @@ export class GameScene extends Phaser.Scene {
     if (this.gameData.isShielded || this.gameData.gameOver) return;
     
     this.takeDamage(HAZARDS.plasticDamage);
-    (plastic as Phaser.Physics.Arcade.Sprite).destroy();
+    
+    // Impact effect
+    const sprite = plastic as Phaser.Physics.Arcade.Sprite;
+    this.cameras.main.shake(100, 0.01);
+    
+    // Burst particles on impact
+    const burst = this.add.particles(sprite.x, sprite.y, 'debris', {
+      speed: { min: 50, max: 100 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 500,
+      quantity: 8,
+    });
+    burst.setDepth(22);
+    this.time.delayedCall(600, () => burst.destroy());
+    
+    sprite.destroy();
     
     this.gameData.apexMoney += 50;
-    this.emitUIUpdate('Echo ate plastic! Apex: Waste disposal +$50');
+    this.emitUIUpdate('ECHO ate plastic! APEX: +$50');
     
     this.flashRed();
   }
@@ -237,9 +457,25 @@ export class GameScene extends Phaser.Scene {
     if (this.gameData.gameOver) return;
     
     this.gameData.health = Math.min(PLAYER.maxHealth, this.gameData.health + HAZARDS.jellyfishHeal);
-    (jellyfish as Phaser.Physics.Arcade.Sprite).destroy();
     
-    this.emitUIUpdate('Echo found real food! +' + HAZARDS.jellyfishHeal + ' HP');
+    const sprite = jellyfish as Phaser.Physics.Arcade.Sprite;
+    
+    // Healing particle effect
+    const healBurst = this.add.particles(sprite.x, sprite.y, 'glow', {
+      speed: { min: 30, max: 80 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.8, end: 0 },
+      alpha: { start: 0.8, end: 0 },
+      lifespan: 800,
+      quantity: 12,
+      tint: 0x00ff88,
+    });
+    healBurst.setDepth(22);
+    this.time.delayedCall(900, () => healBurst.destroy());
+    
+    sprite.destroy();
+    
+    this.emitUIUpdate('ECHO: Found real food! +' + HAZARDS.jellyfishHeal + ' HP');
     this.flashGreen();
   }
 
@@ -248,6 +484,7 @@ export class GameScene extends Phaser.Scene {
     
     this.takeDamage(HAZARDS.netDamage);
     this.player.setVelocity(this.player.body!.velocity.x * HAZARDS.netSlowFactor, this.player.body!.velocity.y * HAZARDS.netSlowFactor);
+    this.cameras.main.shake(50, 0.005);
   }
 
   private takeDamage(amount: number) {
@@ -267,22 +504,39 @@ export class GameScene extends Phaser.Scene {
     this.gameData.isShielded = true;
     this.gameData.isJammed = true;
     
-    this.emitUIUpdate('Overseer: Protocol Sanctuary activated. Shield deployed.');
+    this.emitUIUpdate('OVERSEER: Breaking protocol. Activating Sanctuary Shield.');
     
-    // Visual feedback for overseer
+    // Visual feedback for overseer activation
     this.tweens.add({
       targets: this.overseer,
       alpha: 1,
-      scale: 0.2,
+      scale: 0.18,
       duration: 300,
       yoyo: true,
+      repeat: 2,
     });
+    
+    // Screen flash
+    this.cameras.main.flash(300, 0, 200, 255);
     
     // Destroy nearby nets
     this.nets.getChildren().forEach((net) => {
       const netSprite = net as Phaser.Physics.Arcade.Sprite;
       const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, netSprite.x, netSprite.y);
       if (distance < PLAYER.echolocationRadius * 1.5) {
+        // Destruction effect
+        const destroyBurst = this.add.particles(netSprite.x, netSprite.y, 'glow', {
+          speed: { min: 50, max: 100 },
+          angle: { min: 0, max: 360 },
+          scale: { start: 0.6, end: 0 },
+          alpha: { start: 1, end: 0 },
+          lifespan: 600,
+          quantity: 15,
+          tint: 0x00aaff,
+        });
+        destroyBurst.setDepth(22);
+        this.time.delayedCall(700, () => destroyBurst.destroy());
+        
         netSprite.destroy();
       }
     });
@@ -290,12 +544,12 @@ export class GameScene extends Phaser.Scene {
     // Remove shield and jam after duration
     this.time.delayedCall(OVERSEER.shieldDuration, () => {
       this.gameData.isShielded = false;
-      this.emitUIUpdate('Overseer: Shield depleted.');
+      this.emitUIUpdate('OVERSEER: Shield depleted. Resume caution.');
     });
     
     this.time.delayedCall(OVERSEER.jamDuration, () => {
       this.gameData.isJammed = false;
-      this.emitUIUpdate('Apex: Systems restored. Resuming operations.');
+      this.emitUIUpdate('APEX: Systems restored. Resuming operations.');
     });
   }
 
@@ -310,23 +564,33 @@ export class GameScene extends Phaser.Scene {
     this.gameData.won = won;
     
     // Stop all timers
-    this.netSpawnTimer.destroy();
-    this.plasticSpawnTimer.destroy();
-    this.jellyfishSpawnTimer.destroy();
+    this.netSpawnTimer?.destroy();
+    this.plasticSpawnTimer?.destroy();
+    this.jellyfishSpawnTimer?.destroy();
+    
+    if (won) {
+      // Victory effects
+      this.cameras.main.flash(500, 0, 255, 200);
+      this.emitUIUpdate('ECHO: I made it... The Sanctuary is real.');
+    } else {
+      // Death effects
+      this.cameras.main.shake(500, 0.02);
+      this.emitUIUpdate('ECHO: The silence... it\'s everywhere now...');
+    }
     
     // Transition to end scene
-    this.time.delayedCall(500, () => {
+    this.time.delayedCall(1500, () => {
       this.scene.stop('UIScene');
       this.scene.start('EndScene', { won, distance: this.gameData.distance, apexMoney: this.gameData.apexMoney });
     });
   }
 
   private flashRed() {
-    this.cameras.main.flash(200, 255, 50, 50);
+    this.cameras.main.flash(150, 255, 50, 50);
   }
 
   private flashGreen() {
-    this.cameras.main.flash(200, 50, 255, 100);
+    this.cameras.main.flash(150, 50, 255, 100);
   }
 
   private performEcholocation() {
@@ -335,13 +599,22 @@ export class GameScene extends Phaser.Scene {
     this.gameData.echolocationReady = false;
     this.lastEcholocationTime = this.time.now;
     
+    // Screen effect
+    this.cameras.main.flash(100, 0, 200, 255);
+    
     // Reveal nearby objects
     const revealObjects = (group: Phaser.Physics.Arcade.Group) => {
       group.getChildren().forEach((obj) => {
         const sprite = obj as Phaser.Physics.Arcade.Sprite;
         const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, sprite.x, sprite.y);
         if (distance < PLAYER.echolocationRadius) {
-          sprite.setAlpha(1);
+          // Instant reveal with glow
+          this.tweens.add({
+            targets: sprite,
+            alpha: 1,
+            duration: 200,
+            ease: 'Cubic.easeOut'
+          });
           sprite.setData('revealed', true);
           
           // Fade back after duration
@@ -349,8 +622,8 @@ export class GameScene extends Phaser.Scene {
             if (sprite.active) {
               this.tweens.add({
                 targets: sprite,
-                alpha: 0.3,
-                duration: 500,
+                alpha: 0.2,
+                duration: 800,
               });
             }
           });
@@ -362,22 +635,31 @@ export class GameScene extends Phaser.Scene {
     revealObjects(this.jellyfishes);
     revealObjects(this.nets);
     
-    // Animate echolocation circle
+    // Animate echolocation circle with multiple rings
     let radius = 0;
     const expandCircle = () => {
       this.echolocationCircle.clear();
-      radius += 15;
+      radius += 20;
       
       if (radius < PLAYER.echolocationRadius) {
-        this.echolocationCircle.lineStyle(3, 0x00ffff, 1 - radius / PLAYER.echolocationRadius);
+        const alpha = 1 - radius / PLAYER.echolocationRadius;
+        
+        // Main ring
+        this.echolocationCircle.lineStyle(4, 0x00ffff, alpha);
         this.echolocationCircle.strokeCircle(this.player.x, this.player.y, radius);
+        
+        // Inner echo
+        if (radius > 40) {
+          this.echolocationCircle.lineStyle(2, 0x00aaff, alpha * 0.5);
+          this.echolocationCircle.strokeCircle(this.player.x, this.player.y, radius - 30);
+        }
       }
     };
     
-    const echoTimer = this.time.addEvent({
-      delay: 20,
+    this.time.addEvent({
+      delay: 15,
       callback: expandCircle,
-      repeat: Math.floor(PLAYER.echolocationRadius / 15),
+      repeat: Math.floor(PLAYER.echolocationRadius / 20),
     });
     
     // Reset cooldown
@@ -385,7 +667,27 @@ export class GameScene extends Phaser.Scene {
       this.gameData.echolocationReady = true;
     });
     
-    this.emitUIUpdate('Echolocation pulse sent...');
+    this.emitUIUpdate('ECHO: ...listening...');
+  }
+  
+  private triggerStoryBeat(distance: number) {
+    const beat = STORY_BEATS.find(b => b.distance === distance);
+    if (beat && !this.triggeredStoryBeats.has(distance)) {
+      this.triggeredStoryBeats.add(distance);
+      this.events.emit('storyBeat', beat);
+    }
+  }
+  
+  private checkStoryBeats() {
+    const currentDistance = Math.floor(this.gameData.distance);
+    
+    // Check for new story beats
+    for (const beat of STORY_BEATS) {
+      if (currentDistance >= beat.distance && !this.triggeredStoryBeats.has(beat.distance)) {
+        this.triggerStoryBeat(beat.distance);
+        break; // Only trigger one at a time
+      }
+    }
   }
 
   private emitUIUpdate(message: string) {
@@ -398,8 +700,13 @@ export class GameScene extends Phaser.Scene {
     // Update distance
     this.gameData.distance = Math.floor(this.player.x);
     
-    // Scroll background
-    this.background.tilePositionX = this.cameras.main.scrollX * 0.5;
+    // Parallax scrolling - different speeds for depth
+    const scrollX = this.cameras.main.scrollX;
+    this.bgFar.tilePositionX = scrollX * 0.2;
+    this.bgMid.tilePositionX = scrollX * 0.5;
+    
+    // Update bubble emitter position
+    this.bubbleEmitter.setPosition(this.player.x - 20, this.player.y + 10);
     
     // Player movement
     let velocityX = 0;
@@ -416,6 +723,12 @@ export class GameScene extends Phaser.Scene {
     if (velocityX < 0) this.player.setFlipX(true);
     if (velocityX > 0) this.player.setFlipX(false);
     
+    // Player glow effect
+    this.playerGlow.clear();
+    const glowAlpha = 0.15 + Math.sin(time / 500) * 0.1;
+    this.playerGlow.fillStyle(0x00ffff, glowAlpha);
+    this.playerGlow.fillCircle(this.player.x, this.player.y, 35 + Math.sin(time / 300) * 5);
+    
     // Echolocation
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
       this.performEcholocation();
@@ -424,18 +737,19 @@ export class GameScene extends Phaser.Scene {
     // Update shield visual
     this.shieldCircle.clear();
     if (this.gameData.isShielded) {
-      this.shieldCircle.lineStyle(4, 0x00ffff, 0.6);
-      this.shieldCircle.strokeCircle(this.player.x, this.player.y, 60);
+      const shieldPulse = Math.sin(time / 100) * 0.2 + 0.6;
+      this.shieldCircle.lineStyle(5, 0x00ffff, shieldPulse);
+      this.shieldCircle.strokeCircle(this.player.x, this.player.y, 70);
       this.shieldCircle.fillStyle(0x00ffff, 0.1);
-      this.shieldCircle.fillCircle(this.player.x, this.player.y, 60);
+      this.shieldCircle.fillCircle(this.player.x, this.player.y, 70);
     }
     
-    // Update Apex ship position
-    this.apexShip.x = GAME_CONFIG.width / 2 + Math.sin(time / 2000) * 100;
+    // Update Apex ship position with wave motion
+    this.apexShip.x = GAME_CONFIG.width / 2 + Math.sin(time / 2500) * 150;
+    this.apexShip.y = -40 + Math.sin(time / 1500) * 10;
     
-    // Update Overseer position to follow player loosely
-    this.overseer.x = 80;
-    this.overseer.y = 80 + Math.sin(time / 1000) * 10;
+    // Check story beats
+    this.checkStoryBeats();
     
     // Clean up off-screen objects
     this.cleanupObjects();
@@ -453,7 +767,7 @@ export class GameScene extends Phaser.Scene {
     const cleanupGroup = (group: Phaser.Physics.Arcade.Group) => {
       group.getChildren().forEach((obj) => {
         const sprite = obj as Phaser.Physics.Arcade.Sprite;
-        if (sprite.x < this.player.x - 500) {
+        if (sprite.x < this.player.x - 600) {
           sprite.destroy();
         }
       });
