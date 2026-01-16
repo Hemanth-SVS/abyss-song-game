@@ -47,6 +47,18 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Custom game colors
+        abyss: {
+          DEFAULT: "hsl(var(--abyss))",
+          deep: "hsl(var(--abyss-deep))",
+        },
+        bioluminescent: {
+          DEFAULT: "hsl(var(--bioluminescent))",
+          glow: "hsl(var(--bioluminescent-glow))",
+        },
+        pollution: "hsl(var(--pollution))",
+        sanctuary: "hsl(var(--sanctuary))",
+        apex: "hsl(var(--apex))",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
