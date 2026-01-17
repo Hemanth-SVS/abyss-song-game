@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_CONFIG, PLAYER, GAME, OVERSEER } from '../constants';
+import { GAME_CONFIG, PLAYER, GAME, OVERSEER, THREAT_LEVELS } from '../constants';
 
 interface StoryBeat {
   distance: number;
@@ -23,6 +23,11 @@ export class UIScene extends Phaser.Scene {
   private storySpeaker!: Phaser.GameObjects.Text;
   private storyMessage!: Phaser.GameObjects.Text;
   private storyBg!: Phaser.GameObjects.Graphics;
+  
+  // Threat display
+  private threatBg!: Phaser.GameObjects.Graphics;
+  private threatText!: Phaser.GameObjects.Text;
+  private threatBar!: Phaser.GameObjects.Graphics;
   
   private messages: string[] = [];
   private maxMessages: number = 3;
@@ -128,6 +133,20 @@ export class UIScene extends Phaser.Scene {
     // --- Story Display (center-top) ---
     this.createStoryDisplay();
     
+    // --- Threat Indicator (below story) ---
+    this.threatBg = this.add.graphics();
+    this.threatBg.fillStyle(0x1a0a0a, 0.7);
+    this.threatBg.fillRoundedRect(GAME_CONFIG.width / 2 - 150, 220, 300, 40, 6);
+    
+    this.threatBar = this.add.graphics();
+    this.threatText = this.add.text(GAME_CONFIG.width / 2, 235, 'THREAT LEVEL: LOW', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#00ff00',
+      fontStyle: 'bold',
+    });
+    this.threatText.setOrigin(0.5, 0.5);
+    
     // --- Message Log (bottom) ---
     const logBg = this.add.graphics();
     logBg.fillStyle(0x0a1520, 0.85);
@@ -161,6 +180,7 @@ export class UIScene extends Phaser.Scene {
     gameScene.events.on('uiUpdate', this.handleUIUpdate, this);
     gameScene.events.on('cooldownUpdate', this.updateCooldownBar, this);
     gameScene.events.on('storyBeat', this.showStoryBeat, this);
+    gameScene.events.on('threatUpdate', this.updateThreatDisplay, this);
     
     // Initial messages
     this.addMessage('SYSTEM: Welcome to the Silent Zone. Year 2045.');
@@ -325,4 +345,44 @@ export class UIScene extends Phaser.Scene {
     
     this.messageLog.setText(this.messages.join('\n'));
   }
+
+  private updateThreatDisplay(threatData: any) {
+    const { level, message, totalThreat, nearbyNets, nearbyPlastics, closestThreat } = threatData;
+    
+    // Determine color based on threat level
+    let color = '#00ff00'; // GREEN - LOW
+    if (level === THREAT_LEVELS.MEDIUM) {
+      color = '#ffaa00'; // ORANGE
+    } else if (level === THREAT_LEVELS.HIGH) {
+      color = '#ff6600'; // RED-ORANGE
+    } else if (level === THREAT_LEVELS.CRITICAL) {
+      color = '#ff0000'; // BRIGHT RED
+    }
+    
+    // Display threat info: level, counts, and closest threat distance
+    let threatDisplayText = `THREAT: ${level}`;
+    if (totalThreat > 0) {
+      threatDisplayText += ` | 🔗 ${nearbyNets} | 🗑️ ${nearbyPlastics}`;
+      if (closestThreat > 0) {
+        threatDisplayText += ` | ${closestThreat}m`;
+      }
+    } else {
+      threatDisplayText += ` | All Clear`;
+    }
+    
+    this.threatText.setColor(color);
+    this.threatText.setText(threatDisplayText);
+    
+    // Update threat bar - grows with hazard count
+    this.threatBar.clear();
+    const barLength = Math.min(280, totalThreat * 20);
+    this.threatBar.fillStyle(color, 0.8);
+    this.threatBar.fillRect(GAME_CONFIG.width / 2 - 140, 248, barLength, 8);
+    
+    // Add warning messages to log
+    if (totalThreat >= 3 && message) {
+      this.addMessage(message);
+    }
+  }
 }
+

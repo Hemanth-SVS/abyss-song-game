@@ -97,6 +97,7 @@ export class PreloadScene extends Phaser.Scene {
 
     // Load all game images
     this.load.image('echo', echoTurtleImg);
+    this.load.image('fishy', echoTurtleImg); // 3D-enhanced fish
     this.load.image('ocean_bg_far', oceanBgFarImg);
     this.load.image('ocean_bg_mid', oceanBgMidImg);
     this.load.image('plastic', plasticBagImg);

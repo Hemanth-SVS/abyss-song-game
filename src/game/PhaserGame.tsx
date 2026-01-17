@@ -7,7 +7,11 @@ import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
 import { EndScene } from './scenes/EndScene';
 
-export const PhaserGame = () => {
+interface PhaserGameProps {
+  threatDetectionEnabled?: boolean;
+}
+
+export const PhaserGame = ({ threatDetectionEnabled = true }: PhaserGameProps) => {
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
 
@@ -34,6 +38,9 @@ export const PhaserGame = () => {
       };
 
       gameRef.current = new Phaser.Game(config);
+      
+      // Pass threat detection setting to game registry
+      gameRef.current.registry.set('threatDetectionEnabled', threatDetectionEnabled);
     }
 
     return () => {
@@ -42,7 +49,7 @@ export const PhaserGame = () => {
         gameRef.current = null;
       }
     };
-  }, []);
+  }, [threatDetectionEnabled]);
 
   return (
     <div 
