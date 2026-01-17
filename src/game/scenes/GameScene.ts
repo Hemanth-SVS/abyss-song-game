@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_CONFIG, PLAYER, HAZARDS, APEX, OVERSEER, GAME, STORY_BEATS } from '../constants';
+import { GAME_CONFIG, PLAYER, HAZARDS, APEX, OVERSEER, GAME, STORY_BEATS, THREAT_LEVELS } from '../constants';
 
 interface GameData {
   health: number;
@@ -63,12 +63,21 @@ export class GameScene extends Phaser.Scene {
   // Story system
   private triggeredStoryBeats: Set<number> = new Set();
   private lastStoryDistance: number = 0;
+  
+  // Threat detection system
+  private currentThreatLevel: string = THREAT_LEVELS.LOW;
+  private lastThreatWarning: number = 0;
+  private threatWarningCooldown: number = 3000;
+  private threatDetectionEnabled: boolean = false;
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create() {
+    // Get threat detection setting from registry
+    this.threatDetectionEnabled = this.registry.get('threatDetectionEnabled') || false;
+    
     // Reset game data
     this.gameData = {
       health: PLAYER.maxHealth,
@@ -134,17 +143,40 @@ export class GameScene extends Phaser.Scene {
     this.playerGlow = this.add.graphics();
     this.playerGlow.setDepth(18);
 
-    // Create player (Echo)
-    this.player = this.physics.add.sprite(150, GAME_CONFIG.height / 2, 'echo');
+    // Create player (Echo - 3D enhanced fish)
+    this.player = this.physics.add.sprite(150, GAME_CONFIG.height / 2, 'fishy');
     this.player.setScale(0.18);
     this.player.setCollideWorldBounds(false);
     this.player.setDepth(20);
+    this.player.setData('depth3D', 0); // Track 3D depth for perspective
     
-    // Player swim animation
+    // Enhanced 3D-like swim animation with body rotation
     this.tweens.add({
       targets: this.player,
       scaleY: { from: 0.17, to: 0.19 },
-      duration: 800,
+      rotation: { from: -0.05, to: 0.05 }, // Add body rotation for realism
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+    
+    // Create a 3D fish visual representation
+    this.createFishy3DVisual();
+
+    // Create player (Echo - 3D fish)
+    this.player = this.physics.add.sprite(150, GAME_CONFIG.height / 2, 'fishy');
+    this.player.setScale(0.18);
+    this.player.setCollideWorldBounds(false);
+    this.player.setDepth(20);
+    this.player.setData('depth3D', 0); // Track 3D depth for perspective
+    
+    // Enhanced 3D-like swim animation with body rotation
+    this.tweens.add({
+      targets: this.player,
+      scaleY: { from: 0.17, to: 0.19 },
+      rotation: { from: -0.05, to: 0.05 }, // Add body rotation for realism
+      duration: 1200,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut'
@@ -314,11 +346,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnInitialObjects() {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 30; i++) {
       this.spawnPlastic(Phaser.Math.Between(300, 1200));
     }
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 15; i++) {
       this.spawnJellyfish(Phaser.Math.Between(250, 1400));
+    }
+    for (let i = 0; i < 10; i++) {
+      this.spawnNet();
     }
   }
 
@@ -381,6 +416,8 @@ export class GameScene extends Phaser.Scene {
       jellyfish.setVelocityY(Phaser.Math.Between(-10, 10));
       jellyfish.setAlpha(0.25);
       jellyfish.setData('revealed', false);
+      jellyfish.setData('avoidanceRadius', 100); // Detection radius for nets
+      jellyfish.setData('lastAvoidTime', 0);
       jellyfish.setDepth(6);
       
       // Pulsing animation for jellyfish
@@ -404,23 +441,27 @@ export class GameScene extends Phaser.Scene {
     
     if (x < GAME.sanctuaryDistance - 300) {
       const net = this.nets.create(x, y, 'ghost_net') as Phaser.Physics.Arcade.Sprite;
-      net.setScale(0.25);
-      net.setAlpha(0.2);
+      net.setScale(0.5); // More visible size
+      net.setAlpha(0.6); // More opaque
       net.setData('revealed', false);
+      net.setData('avoidanceRadius', 120); // Radius for AI to detect and avoid
       net.setDepth(7);
+      
+      // Make nets static (don't drift)
+      net.setImmovable(true);
       
       // Drifting animation
       this.tweens.add({
         targets: net,
-        rotation: 0.1,
-        duration: 3000,
+        rotation: 0.2,
+        duration: 4000,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut'
       });
       
       this.gameData.apexMoney += 100;
-      this.emitUIUpdate('APEX: Net deployed. Quota +$100');
+      this.emitUIUpdate('APEX: Fishnet deployed. Quota +$100');
     }
   }
 
@@ -697,6 +738,12 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.gameData.gameOver) return;
     
+    // Update threat detection
+    this.updateThreatDetection(time);
+    
+    // Update jellyfish avoidance behavior
+    this.updateJellyfishAvoidance();
+    
     // Update distance
     this.gameData.distance = Math.floor(this.player.x);
     
@@ -711,23 +758,45 @@ export class GameScene extends Phaser.Scene {
     // Player movement
     let velocityX = 0;
     let velocityY = 0;
+    let depth3D = 0; // Track 3D depth movement
     
     if (this.cursors.left.isDown || this.wasd.A.isDown) velocityX = -PLAYER.speed;
     if (this.cursors.right.isDown || this.wasd.D.isDown) velocityX = PLAYER.speed;
-    if (this.cursors.up.isDown || this.wasd.W.isDown) velocityY = -PLAYER.speed;
-    if (this.cursors.down.isDown || this.wasd.S.isDown) velocityY = PLAYER.speed;
+    if (this.cursors.up.isDown || this.wasd.W.isDown) {
+      velocityY = -PLAYER.speed;
+      depth3D = -20; // Move up = move forward in 3D space (increase depth)
+    }
+    if (this.cursors.down.isDown || this.wasd.S.isDown) {
+      velocityY = PLAYER.speed;
+      depth3D = 20; // Move down = move backward in 3D space (decrease depth)
+    }
     
     this.player.setVelocity(velocityX, velocityY);
+    
+    // Apply 3D depth effect - scale changes based on depth
+    const currentDepth3D = this.player.getData('depth3D') || 0;
+    const newDepth3D = currentDepth3D + depth3D * 0.01;
+    this.player.setData('depth3D', newDepth3D);
+    
+    // Perspective scaling - fish gets larger as it moves toward camera (up)
+    const depthScale = 1 + (newDepth3D * 0.005); // Max 0.5% scale change per depth unit
+    const clampedDepthScale = Phaser.Math.Clamp(depthScale, 0.12, 0.28); // Constrain scale
+    this.player.setScale(clampedDepthScale);
+    
+    // Adjust alpha for depth perception
+    const depthAlpha = 0.7 + (newDepth3D * 0.001); // Opacity changes with depth
+    this.player.setAlpha(Phaser.Math.Clamp(depthAlpha, 0.5, 1));
     
     // Flip player based on direction
     if (velocityX < 0) this.player.setFlipX(true);
     if (velocityX > 0) this.player.setFlipX(false);
     
-    // Player glow effect
+    // Player glow effect with 3D depth
     this.playerGlow.clear();
-    const glowAlpha = 0.15 + Math.sin(time / 500) * 0.1;
+    const glowAlpha = 0.15 + Math.sin(time / 500) * 0.1 + (newDepth3D * 0.001);
     this.playerGlow.fillStyle(0x00ffff, glowAlpha);
-    this.playerGlow.fillCircle(this.player.x, this.player.y, 35 + Math.sin(time / 300) * 5);
+    const glowRadius = 35 + Math.sin(time / 300) * 5 + (newDepth3D * 0.05);
+    this.playerGlow.fillCircle(this.player.x, this.player.y, glowRadius);
     
     // Echolocation
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
@@ -776,5 +845,192 @@ export class GameScene extends Phaser.Scene {
     cleanupGroup(this.plastics);
     cleanupGroup(this.jellyfishes);
     cleanupGroup(this.nets);
+  }
+
+  private updateThreatDetection(time: number) {
+    // Threat detection always runs
+    // Detect ALL hazards in a wide area
+    const detectionRange = 1000; // Wide detection range for early warning
+    
+    // Count all obstacles near player
+    let nearbyNets = 0;
+    let nearbyPlastics = 0;
+    let totalHazards = 0;
+    let closestThreat = Infinity;
+    
+    // Detect nets (fishnets - major threat)
+    this.nets.getChildren().forEach((netObj) => {
+      const net = netObj as Phaser.Physics.Arcade.Sprite;
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, net.x, net.y);
+      if (distance < detectionRange) {
+        nearbyNets++;
+        totalHazards++;
+        closestThreat = Math.min(closestThreat, distance);
+      }
+    });
+    
+    // Detect plastics (waste hazard)
+    this.plastics.getChildren().forEach((plasticObj) => {
+      const plastic = plasticObj as Phaser.Physics.Arcade.Sprite;
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, plastic.x, plastic.y);
+      if (distance < detectionRange) {
+        nearbyPlastics++;
+        totalHazards++;
+        closestThreat = Math.min(closestThreat, distance);
+      }
+    });
+    
+    // Calculate threat level based on proximity and count
+    let newThreatLevel = THREAT_LEVELS.LOW;
+    let threatMessage = '';
+    
+    // Lower thresholds for easier threat escalation
+    if (totalHazards >= 12) {
+      newThreatLevel = THREAT_LEVELS.CRITICAL;
+      threatMessage = '⚠ CRITICAL: DANGER! Multiple traps ahead - IMMEDIATE EVASION!';
+    } else if (totalHazards >= 8) {
+      newThreatLevel = THREAT_LEVELS.HIGH;
+      threatMessage = '⚠ HIGH THREAT: Dense hazard zone detected - Multiple nets and waste!';
+    } else if (totalHazards >= 4) {
+      newThreatLevel = THREAT_LEVELS.MEDIUM;
+      threatMessage = '⚠ CAUTION: Multiple hazards detected ahead.';
+    } else if (totalHazards >= 2) {
+      newThreatLevel = THREAT_LEVELS.LOW;
+      threatMessage = '• Hazards detected nearby.';
+    } else {
+      newThreatLevel = THREAT_LEVELS.LOW;
+      threatMessage = '• Sensors clear.';
+    }
+    
+    // Update threat level
+    this.currentThreatLevel = newThreatLevel;
+    
+    // Emit threat update constantly for real-time detection
+    if (time - this.lastThreatWarning > 100) { // Every 100ms for smooth updates
+      this.lastThreatWarning = time;
+      this.events.emit('threatUpdate', {
+        level: newThreatLevel,
+        message: threatMessage,
+        nearbyNets,
+        nearbyPlastics,
+        totalThreat: totalHazards,
+        closestThreat: closestThreat === Infinity ? -1 : Math.floor(closestThreat)
+      });
+    }
+  }
+
+
+  private updateJellyfishAvoidance() {
+    // Get all nets as an array for easier iteration
+    const nets = this.nets.getChildren() as Phaser.Physics.Arcade.Sprite[];
+    
+    // Update each jellyfish's avoidance behavior
+    this.jellyfishes.getChildren().forEach((jellyfishObj) => {
+      const jellyfish = jellyfishObj as Phaser.Physics.Arcade.Sprite;
+      const avoidanceRadius = jellyfish.getData('avoidanceRadius') as number;
+      
+      // Check if any net is within avoidance radius
+      let hasNearbyNet = false;
+      let netToAvoid: Phaser.Physics.Arcade.Sprite | null = null;
+      
+      for (const net of nets) {
+        const distance = Phaser.Math.Distance.Between(
+          jellyfish.x, jellyfish.y,
+          net.x, net.y
+        );
+        
+        if (distance < avoidanceRadius) {
+          hasNearbyNet = true;
+          netToAvoid = net;
+          break; // Avoid closest net
+        }
+      }
+      
+      // Apply avoidance behavior
+      if (hasNearbyNet && netToAvoid) {
+        // Calculate escape vector (away from net)
+        const angle = Phaser.Math.Angle.Between(
+          netToAvoid.x, netToAvoid.y,
+          jellyfish.x, jellyfish.y
+        );
+        
+        // Get current velocity
+        const currentVelX = jellyfish.body!.velocity.x;
+        const currentVelY = jellyfish.body!.velocity.y;
+        
+        // Blend avoidance with current direction (stronger avoidance = more blending)
+        const avoidanceForce = 80;
+        const avoidVelX = Math.cos(angle) * avoidanceForce;
+        const avoidVelY = Math.sin(angle) * avoidanceForce;
+        
+        // Mix avoidance with natural movement (30% avoidance, 70% natural)
+        jellyfish.setVelocity(
+          currentVelX * 0.7 + avoidVelX * 0.3,
+          currentVelY * 0.7 + avoidVelY * 0.3
+        );
+        
+        jellyfish.setData('lastAvoidTime', Date.now());
+      } else {
+        // Resume natural drifting if no nets nearby
+        const lastAvoidTime = jellyfish.getData('lastAvoidTime') as number;
+        
+        // Gradually return to natural movement if not avoiding
+        if (Date.now() - lastAvoidTime > 500) {
+          // Keep current velocity as is for natural drift
+        }
+      }
+      
+      // Keep jellyfish in bounds
+      const y = jellyfish.y;
+      if (y < 50) {
+        jellyfish.setVelocityY(Math.abs(jellyfish.body!.velocity.y));
+      } else if (y > GAME_CONFIG.height - 50) {
+        jellyfish.setVelocityY(-Math.abs(jellyfish.body!.velocity.y));
+      }
+    });
+  }
+
+  private createFishy3DVisual() {
+    // Create a 3D-styled fish visual overlay
+    const fishyGraphics = this.add.graphics();
+    fishyGraphics.setDepth(19);
+    
+    // Update the visual every frame to match player position and 3D state
+    this.events.on('update', () => {
+      fishyGraphics.clear();
+      
+      const x = this.player.x;
+      const y = this.player.y;
+      const depth3D = this.player.getData('depth3D') || 0;
+      const scale = this.player.scale;
+      
+      // Draw 3D fish body with perspective
+      const bodyLength = 30 * scale;
+      const bodyHeight = 15 * scale;
+      
+      // Main body (more pronounced with 3D effect)
+      fishyGraphics.fillStyle(0x00ccff, 0.9);
+      fishyGraphics.beginPath();
+      // Fish head (pointed)
+      fishyGraphics.moveTo(x - bodyLength / 2, y);
+      // Top back
+      fishyGraphics.lineTo(x + bodyLength / 2, y - bodyHeight / 2);
+      // Bottom back
+      fishyGraphics.lineTo(x + bodyLength / 2, y + bodyHeight / 2);
+      fishyGraphics.closePath();
+      fishyGraphics.fillPath();
+      
+      // Add fin effect
+      fishyGraphics.fillStyle(0x00ffff, 0.6);
+      fishyGraphics.beginPath();
+      fishyGraphics.arc(x + bodyLength / 3, y, bodyHeight / 3, 0, Math.PI * 2);
+      fishyGraphics.fillPath();
+      
+      // Eye highlight for 3D effect
+      fishyGraphics.fillStyle(0xffffff, 0.8);
+      fishyGraphics.fillCircle(x - bodyLength / 4, y - bodyHeight / 4, 3 * scale);
+      fishyGraphics.fillStyle(0x000000, 0.9);
+      fishyGraphics.fillCircle(x - bodyLength / 4, y - bodyHeight / 4, 1.5 * scale);
+    });
   }
 }

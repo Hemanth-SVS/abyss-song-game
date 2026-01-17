@@ -21,9 +21,9 @@ export const HAZARDS = {
 };
 
 export const APEX = {
-  netSpawnInterval: 5000,
-  wasteSpawnInterval: 6000,
-  plasticSpawnInterval: 3500,
+  netSpawnInterval: 2500,  // Doubled spawn rate (was 5000)
+  wasteSpawnInterval: 2000, // Doubled spawn rate (was 6000)
+  plasticSpawnInterval: 1800, // Doubled spawn rate (was 3500)
 };
 
 export const OVERSEER = {
@@ -43,12 +43,17 @@ export const STORY_BEATS = [
   { distance: 0, speaker: 'SYSTEM', message: 'Year 2045. The Silent Zone.' },
   { distance: 100, speaker: 'ECHO', message: '...The water tastes wrong. Everything is murky.' },
   { distance: 300, speaker: 'OVERSEER', message: 'Detecting life form. Initiating observation protocol.' },
+  { distance: 500, speaker: 'PREDICTOR', message: '⚠ Threat Detection AI Active: Analyzing hazard patterns ahead.' },
   { distance: 600, speaker: 'ECHO', message: 'I remember when I could hear my family. Now there is only... noise.' },
+  { distance: 900, speaker: 'PREDICTOR', message: '⚠ WARNING: High-density fishnet deployment detected 200m ahead.' },
   { distance: 1000, speaker: 'APEX', message: 'Net deployed. Quota progress: 12%.' },
   { distance: 1200, speaker: 'OVERSEER', message: 'Warning: Subject entering high-density pollution zone.' },
+  { distance: 1500, speaker: 'PREDICTOR', message: '⚠ CRITICAL: Multiple hazards converging. Plastic waste + fishnets detected.' },
   { distance: 1800, speaker: 'ECHO', message: 'Is that food? It looks like a jellyfish... but something feels wrong.' },
+  { distance: 2000, speaker: 'PREDICTOR', message: '⚠ ALERT: Intense pollution ahead. Difficulty increasing.' },
   { distance: 2200, speaker: 'APEX', message: 'Waste disposal complete. Cost savings: $500.' },
   { distance: 2500, speaker: 'OVERSEER', message: 'Analysis: If subject perishes, ecosystem collapse accelerates by 3.2 years.' },
+  { distance: 2800, speaker: 'PREDICTOR', message: '⚠ NOTICE: Hazard density decreasing. Sanctuary zone approaching.' },
   { distance: 3000, speaker: 'ECHO', message: 'The Sanctuary... I can almost sense it. The water feels different there.' },
   { distance: 3500, speaker: 'APEX', message: 'Quarterly report: Profits up 23%. Environmental concerns: Dismissed.' },
   { distance: 4000, speaker: 'OVERSEER', message: 'Decision threshold reached. Preparing intervention protocols.' },
@@ -56,3 +61,11 @@ export const STORY_BEATS = [
   { distance: 5000, speaker: 'APEX', message: 'Warning: Sensor interference detected. Investigating...' },
   { distance: 5500, speaker: 'OVERSEER', message: 'Subject approaching Sanctuary. Probability of survival: Rising.' },
 ];
+
+// Threat levels
+export const THREAT_LEVELS = {
+  LOW: 'LOW',
+  MEDIUM: 'MEDIUM', 
+  HIGH: 'HIGH',
+  CRITICAL: 'CRITICAL'
+};

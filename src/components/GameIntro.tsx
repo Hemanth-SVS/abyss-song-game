@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 
 interface GameIntroProps {
-  onStart: () => void;
+  onStart: (enableThreatDetection: boolean) => void;
 }
 
 const TypewriterText = ({ text, delay = 30, onComplete }: { text: string; delay?: number; onComplete?: () => void }) => {
@@ -27,6 +27,7 @@ const TypewriterText = ({ text, delay = 30, onComplete }: { text: string; delay?
 export const GameIntro = ({ onStart }: GameIntroProps) => {
   const [phase, setPhase] = useState<'title' | 'lore' | 'characters' | 'ready'>('title');
   const [showSkip, setShowSkip] = useState(false);
+  const [enableThreatDetection, setEnableThreatDetection] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSkip(true), 2000);
@@ -128,7 +129,7 @@ export const GameIntro = ({ onStart }: GameIntroProps) => {
         )}
 
         {phase === 'characters' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-6 animate-fade-in pt-12">
             <p className="text-[hsl(var(--bioluminescent))] text-xs font-mono tracking-widest">
               // THE TRIAD
             </p>
@@ -163,10 +164,11 @@ export const GameIntro = ({ onStart }: GameIntroProps) => {
                 <h3 className="text-xl font-bold text-[hsl(var(--primary))] mb-2 font-serif">OVERSEER MODEL-7</h3>
                 <p className="text-[hsl(var(--muted-foreground))] text-sm leading-relaxed">
                   A climate-monitoring drone that gained sentience. It calculates: if the ocean dies, humanity dies. 
-                  When you're critical, it will break its "Observe Only" protocol.
+                  Uses advanced threat detection AI (PREDICTOR) to warn you of incoming dangers—nets, plastic waste, 
+                  and depth hazards. When you're critical, it will break its "Observe Only" protocol.
                 </p>
                 <p className="text-[hsl(var(--primary))]/60 text-xs mt-3 font-mono">
-                  [ YOUR GUARDIAN ]
+                  [ YOUR GUARDIAN & AI ADVISOR ]
                 </p>
               </div>
             </div>
@@ -214,14 +216,26 @@ export const GameIntro = ({ onStart }: GameIntroProps) => {
               </div>
             </div>
 
-            <Button 
-              onClick={onStart}
-              variant="abyss"
-              size="lg"
-              className="text-xl px-12 py-7 font-serif"
-            >
-              ENTER THE DEPTHS
-            </Button>
+            <div className="space-y-4">
+              <label className="flex items-center justify-center gap-3 cursor-pointer text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--bioluminescent))] transition-colors">
+                <input 
+                  type="checkbox" 
+                  checked={enableThreatDetection}
+                  onChange={(e) => setEnableThreatDetection(e.target.checked)}
+                  className="w-4 h-4 rounded cursor-pointer"
+                />
+                <span className="font-serif text-sm">Enable Threat Detection AI (PREDICTOR)</span>
+              </label>
+              
+              <Button 
+                onClick={() => onStart(enableThreatDetection)}
+                variant="abyss"
+                size="lg"
+                className="text-xl px-12 py-7 font-serif"
+              >
+                ENTER THE DEPTHS
+              </Button>
+            </div>
           </div>
         )}
 
